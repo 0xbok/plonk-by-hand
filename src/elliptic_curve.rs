@@ -1,4 +1,5 @@
 // elliptic curve y^2 = x^3 + ax + b where a = 0
+// b is automatically determined from a point on the curve
 
 pub struct ECurve {
     pub field: u32,
@@ -28,7 +29,7 @@ impl ECurve {
             return Self::gcd(b, a);
         }
 
-        return Self::gcd (a, b-a);
+        Self::gcd(a, b-a)
     }
 
     fn modular(&self, a: i32) -> u32 {
@@ -53,25 +54,57 @@ impl ECurve {
             b = (b*b) % self.field;
             e >>= 1;
         }
-        return r;
+        r
     }
 
-    // p -> 2p
-    pub fn double(&self, p: &Point) -> Point {
-        let m_a = 3 * p.x * p.x;
-        let m_b = 2 * p.y;
-        let g = Self::gcd(m_a, m_b);
-        let m_a = m_a / g;
-        let m_b = m_b / g;
+    // convert fraction to a field element
+    fn frac_to_element(&self, a: u32, b: u32) -> u32 {
+        let g: u32 = Self::gcd(a, b);
+        let a = a / g;
+        let b = b / g;
 
         // https://math.stackexchange.com/a/586613
         // https://cp-algorithms.com/algebra/phi-function.html
-        let m_b_mul_inv = self.pow(m_b, self.field - 2);
-        let m = self.modular((m_a * m_b_mul_inv) as i32);
+        let b_mul_inv = self.pow(b, self.field - 2);
+        self.modular((a * b_mul_inv) as i32)
+    }
 
-        return Point {
+    // p -> 2p
+    fn double(&self, p: &Point) -> Point {
+        // m = m_a/m_b
+        let m_a = 3 * p.x * p.x;
+        let m_b = 2 * p.y;
+        let m = self.frac_to_element(m_a, m_b);
+
+        Point {
             x: self.modular((m*m) as i32 - (2*p.x) as i32),
             y: self.modular(m as i32 * (3*p.x as i32 - (m as i32 * m as i32)) - p.y as i32)
         }
+    }
+
+    pub fn add(&self, p: &Point, q: &Point) -> Point {
+        assert_ne!(p.x, q.x);
+
+        let lam_a = self.modular(q.y as i32 - p.y as i32);
+        let lam_b = self.modular(q.x as i32 - p.x as i32);
+
+        let lam = self.frac_to_element(lam_a, lam_b);
+
+        let r_x = self.modular((lam*lam) as i32 - (p.x + q.x) as i32);
+
+        Point {
+            x: r_x,
+            y: self.modular((lam*p.x) as i32 - (lam*r_x + p.y) as i32),
+        }
+    }
+
+    // p -> n*p
+    pub fn mul(&self, p: &Point, n: u32) -> Point {
+        assert_eq!(n & 1, 0);
+        if n == 2 {
+            return self.double(p);
+        }
+        let r = self.mul(p, n/2);
+        self.double(&r)
     }
 }
